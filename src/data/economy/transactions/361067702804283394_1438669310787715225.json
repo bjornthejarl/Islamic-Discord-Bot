@@ -1,0 +1,13 @@
+[
+  {
+    "transaction_id": "txn_1763745760_361067702804283394",
+    "user_id": 361067702804283394,
+    "guild_id": 1438669310787715225,
+    "type": "earn",
+    "amount": 60,
+    "currency": "ilm_coins",
+    "source": "daily_reward",
+    "description": "Earn from daily_reward",
+    "timestamp": "2025-11-21T18:22:40.792757"
+  }
+]

@@ -1,0 +1,76 @@
+{
+  "items": [
+    {
+      "id": "dua_book",
+      "name": "📖 Dua Collection Book",
+      "description": "A comprehensive collection of Islamic prayers and supplications",
+      "price": 150,
+      "type": "consumable",
+      "category": "knowledge",
+      "effects": {"good_deed_points": 5}
+    },
+    {
+      "id": "quran_audio",
+      "name": "🎧 Quran Audio Recitation",
+      "description": "Beautiful recitation of the Holy Quran by renowned Qaris",
+      "price": 200,
+      "type": "consumable",
+      "category": "knowledge",
+      "effects": {"good_deed_points": 8}
+    },
+    {
+      "id": "islamic_art",
+      "name": "🖼️ Islamic Art Frame",
+      "description": "Beautiful Islamic calligraphy and geometric patterns",
+      "price": 300,
+      "type": "decorative",
+      "category": "cosmetic",
+      "effects": {"prestige": 10}
+    },
+    {
+      "id": "prayer_mat",
+      "name": "🧎 Premium Prayer Mat",
+      "description": "High-quality prayer mat with comfortable padding",
+      "price": 400,
+      "type": "utility",
+      "category": "practical",
+      "effects": {"good_deed_points": 15}
+    },
+    {
+      "id": "charity_certificate",
+      "name": "🏆 Charity Certificate",
+      "description": "Official certificate recognizing your charitable contributions",
+      "price": 500,
+      "type": "achievement",
+      "category": "prestige",
+      "effects": {"prestige": 25, "good_deed_points": 20}
+    },
+    {
+      "id": "knowledge_boost",
+      "name": "🧠 Knowledge Boost",
+      "description": "Temporary 2x bonus to quiz and game rewards (24 hours)",
+      "price": 350,
+      "type": "boost",
+      "category": "utility",
+      "effects": {"xp_multiplier": 2.0, "duration_hours": 24}
+    },
+    {
+      "id": "hijri_calendar",
+      "name": "📅 Hijri Calendar",
+      "description": "Beautiful Islamic calendar with important dates and events",
+      "price": 250,
+      "type": "decorative",
+      "category": "knowledge",
+      "effects": {"good_deed_points": 10}
+    },
+    {
+      "id": "arabic_lessons",
+      "name": "📚 Arabic Language Course",
+      "description": "Basic Arabic language lessons for Quranic understanding",
+      "price": 600,
+      "type": "consumable",
+      "category": "knowledge",
+      "effects": {"good_deed_points": 30, "prestige": 15}
+    }
+  ]
+}

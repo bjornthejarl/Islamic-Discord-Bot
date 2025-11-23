@@ -1,0 +1,41 @@
+{
+  "economy": {
+    "daily_base_reward": 50,
+    "daily_streak_bonus": 10,
+    "max_streak": 7,
+    "weekly_bonus": 100,
+    "transfer_enabled": true,
+    "transfer_fee_percent": 0,
+    "min_transfer_amount": 10,
+    "max_transfer_amount": 1000,
+    "donation_enabled": true,
+    "inflation_control": {
+      "price_adjustment_interval": 30,
+      "max_price_increase": 0.1
+    }
+  },
+  "games": {
+    "quiz": {
+      "cooldown_seconds": 300,
+      "max_questions_per_session": 10,
+      "points_multiplier": 1.0
+    },
+    "verse_match": {
+      "cooldown_seconds": 600,
+      "max_attempts": 3,
+      "points_multiplier": 1.2
+    }
+  },
+  "shop": {
+    "new_items_interval": 7,
+    "featured_rotation_hours": 24,
+    "max_items_per_category": 50,
+    "gift_cooldown_hours": 24
+  },
+  "moderation": {
+    "max_transactions_per_hour": 50,
+    "suspicious_activity_threshold": 10,
+    "auto_ban_enabled": false,
+    "admin_alert_enabled": true
+  }
+}

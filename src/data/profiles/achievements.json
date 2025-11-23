@@ -1,0 +1,94 @@
+{
+  "achievements": [
+    {
+      "id": "first_steps",
+      "name": "First Steps",
+      "description": "Complete your first quiz",
+      "icon": "🚶",
+      "category": "learning",
+      "requirement": {"quizzes_completed": 1},
+      "reward": {"coins": 50, "good_deed_points": 5}
+    },
+    {
+      "id": "quran_scholar",
+      "name": "Quran Scholar",
+      "description": "Complete 10 Quran-related quizzes",
+      "icon": "📖",
+      "category": "knowledge",
+      "requirement": {"quran_quizzes_completed": 10},
+      "reward": {"coins": 200, "good_deed_points": 20}
+    },
+    {
+      "id": "generous_soul",
+      "name": "Generous Soul",
+      "description": "Donate 1000 Ilm Coins to charity",
+      "icon": "💝",
+      "category": "charity",
+      "requirement": {"total_donated": 1000},
+      "reward": {"coins": 500, "good_deed_points": 50}
+    },
+    {
+      "id": "daily_devotee",
+      "name": "Daily Devotee",
+      "description": "Maintain a 7-day daily reward streak",
+      "icon": "🔥",
+      "category": "consistency",
+      "requirement": {"daily_streak": 7},
+      "reward": {"coins": 300, "good_deed_points": 25}
+    },
+    {
+      "id": "knowledge_seeker",
+      "name": "Knowledge Seeker",
+      "description": "Complete 25 total games and quizzes",
+      "icon": "🧠",
+      "category": "learning",
+      "requirement": {"games_played": 25},
+      "reward": {"coins": 400, "good_deed_points": 30}
+    },
+    {
+      "id": "verse_master",
+      "name": "Verse Master",
+      "description": "Correctly match 15 Quran verses",
+      "icon": "🎯",
+      "category": "knowledge",
+      "requirement": {"verse_matches_correct": 15},
+      "reward": {"coins": 350, "good_deed_points": 35}
+    },
+    {
+      "id": "hadith_expert",
+      "name": "Hadith Expert",
+      "description": "Complete 10 Hadith trivia games",
+      "icon": "📜",
+      "category": "knowledge",
+      "requirement": {"hadith_games_completed": 10},
+      "reward": {"coins": 250, "good_deed_points": 20}
+    },
+    {
+      "id": "community_pillar",
+      "name": "Community Pillar",
+      "description": "Reach 100 Good Deed Points",
+      "icon": "🌟",
+      "category": "charity",
+      "requirement": {"good_deed_points": 100},
+      "reward": {"coins": 600, "good_deed_points": 50}
+    },
+    {
+      "id": "wealth_of_knowledge",
+      "name": "Wealth of Knowledge",
+      "description": "Earn 5000 total Ilm Coins",
+      "icon": "💰",
+      "category": "economy",
+      "requirement": {"total_earned": 5000},
+      "reward": {"coins": 1000, "good_deed_points": 75}
+    },
+    {
+      "id": "islamic_artisan",
+      "name": "Islamic Artisan",
+      "description": "Purchase 5 different shop items",
+      "icon": "🛍️",
+      "category": "economy",
+      "requirement": {"unique_items_purchased": 5},
+      "reward": {"coins": 450, "good_deed_points": 40}
+    }
+  ]
+}
