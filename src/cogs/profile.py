@@ -139,16 +139,12 @@ class ProfileCog(commands.Cog):
     async def check_achievements(self, user_id: int, guild_id: int, user_data: dict):
         """Check and award achievements based on user progress."""
         try:
-            profile_path = os.path.join("src", "data", "profiles", f"{user_id}_{guild_id}.json")
-            
-            # Load user profile
-            profile = {}
-            if os.path.exists(profile_path):
-                with open(profile_path, 'r', encoding='utf-8') as f:
-                    profile = json.load(f)
-            
-            if "achievements" not in profile:
-                profile["achievements"] = {}
+            # Load obtained achievements from DB
+            rows = await self.economy_utils.db.fetchall(
+                "SELECT achievement_id FROM user_achievements WHERE user_id = ? AND guild_id = ?",
+                (user_id, guild_id)
+            )
+            obtained_achievements = {row['achievement_id'] for row in rows}
             
             new_achievements = []
             
@@ -157,7 +153,7 @@ class ProfileCog(commands.Cog):
                 achievement_id = achievement["id"]
                 
                 # Skip if already achieved
-                if achievement_id in profile["achievements"]:
+                if achievement_id in obtained_achievements:
                     continue
                 
                 # Check requirements
@@ -176,27 +172,34 @@ class ProfileCog(commands.Cog):
                         break
                 
                 if requirement_met:
-                    # Award achievement
-                    profile["achievements"][achievement_id] = {
-                        "achieved_at": datetime.now().isoformat(),
-                        "reward_claimed": False
-                    }
-                    
-                    # Apply rewards
-                    if "reward" in achievement:
-                        reward = achievement["reward"]
-                        if "coins" in reward:
-                            await self.economy_utils.add_coins(
-                                user_id, guild_id, reward["coins"], f"achievement_{achievement_id}"
-                            )
-                        if "good_deed_points" in reward:
-                            user_data["economy"]["good_deed_points"] += reward["good_deed_points"]
-                    
-                    new_achievements.append(achievement)
-            
-            # Save updated profile
-            with open(profile_path, 'w', encoding='utf-8') as f:
-                json.dump(profile, f, indent=2, ensure_ascii=False)
+                    # Award achievement in DB
+                    try:
+                        await self.economy_utils.db.execute(
+                            "INSERT INTO user_achievements (user_id, guild_id, achievement_id) VALUES (?, ?, ?)",
+                            (user_id, guild_id, achievement_id)
+                        )
+                        await self.economy_utils.db.commit()
+                        
+                        # Apply rewards
+                        if "reward" in achievement:
+                            reward = achievement["reward"]
+                            if "coins" in reward:
+                                await self.economy_utils.add_coins(
+                                    user_id, guild_id, reward["coins"], f"achievement_{achievement_id}"
+                                )
+                            if "good_deed_points" in reward:
+                                # Update GDP directly as add_coins doesn't touch GDP
+                                await self.economy_utils.db.execute(
+                                    "UPDATE users SET good_deed_points = good_deed_points + ? WHERE user_id = ? AND guild_id = ?",
+                                    (reward["good_deed_points"], user_id, guild_id)
+                                )
+                                await self.economy_utils.db.commit()
+                        
+                        new_achievements.append(achievement)
+                        obtained_achievements.add(achievement_id)
+                        
+                    except Exception as e:
+                        logger.error(f"Error awarding achievement {achievement_id}: {e}")
             
             return new_achievements
             
@@ -216,12 +219,12 @@ class ProfileCog(commands.Cog):
             # Get user data
             user_data = await self.economy_utils.get_user_data(target_user.id, interaction.guild.id)
             
-            # Load profile
-            profile_path = os.path.join("src", "data", "profiles", f"{target_user.id}_{interaction.guild.id}.json")
-            profile = {}
-            if os.path.exists(profile_path):
-                with open(profile_path, 'r', encoding='utf-8') as f:
-                    profile = json.load(f)
+            # Get achievements
+            rows = await self.economy_utils.db.fetchall(
+                "SELECT achievement_id FROM user_achievements WHERE user_id = ? AND guild_id = ?",
+                (target_user.id, interaction.guild.id)
+            )
+            user_achievements = [row['achievement_id'] for row in rows]
             
             # Create profile embed
             embed = discord.Embed(
@@ -258,7 +261,7 @@ class ProfileCog(commands.Cog):
             )
             
             # Add achievements count
-            achievement_count = len(profile.get("achievements", {}))
+            achievement_count = len(user_achievements)
             total_achievements = len(self.achievements["achievements"])
             
             embed.add_field(
@@ -267,22 +270,30 @@ class ProfileCog(commands.Cog):
                 inline=True
             )
             
-            # Add recent achievements (last 3)
-            if "achievements" in profile:
-                recent_achievements = list(profile["achievements"].keys())[-3:]
-                if recent_achievements:
-                    achievement_text = ""
-                    for ach_id in recent_achievements:
-                        achievement = next((a for a in self.achievements["achievements"] if a["id"] == ach_id), None)
-                        if achievement:
-                            achievement_text += f"{achievement['icon']} {achievement['name']}\n"
-                    
-                    if achievement_text:
-                        embed.add_field(
-                            name="✨ Recent Achievements",
-                            value=achievement_text,
-                            inline=False
-                        )
+            # Add recent achievements (last 3 - loosely approximating by taking last in list, 
+            # though DB retrieval order isn't guaranteed without ORDER BY. 
+            # For strictness we could select achieved_at)
+            
+            if user_achievements:
+                # Re-fetch with date sorting to get actual recent ones
+                recent_rows = await self.economy_utils.db.fetchall(
+                    "SELECT achievement_id FROM user_achievements WHERE user_id = ? AND guild_id = ? ORDER BY achieved_at DESC LIMIT 3",
+                    (target_user.id, interaction.guild.id)
+                )
+                recent_ids = [r['achievement_id'] for r in recent_rows]
+                
+                achievement_text = ""
+                for ach_id in recent_ids:
+                    achievement = next((a for a in self.achievements["achievements"] if a["id"] == ach_id), None)
+                    if achievement:
+                        achievement_text += f"{achievement['icon']} {achievement['name']}\n"
+                
+                if achievement_text:
+                    embed.add_field(
+                        name="✨ Recent Achievements",
+                        value=achievement_text,
+                        inline=False
+                    )
             
             # Calculate user level based on total earned
             level = (economy["total_earned"] // 1000) + 1
@@ -303,14 +314,14 @@ class ProfileCog(commands.Cog):
         await interaction.response.defer()
         
         try:
-            # Load user profile
-            profile_path = os.path.join("src", "data", "profiles", f"{interaction.user.id}_{interaction.guild.id}.json")
-            profile = {}
-            if os.path.exists(profile_path):
-                with open(profile_path, 'r', encoding='utf-8') as f:
-                    profile = json.load(f)
-            
             user_data = await self.economy_utils.get_user_data(interaction.user.id, interaction.guild.id)
+            
+            # Get achievements
+            rows = await self.economy_utils.db.fetchall(
+                "SELECT achievement_id FROM user_achievements WHERE user_id = ? AND guild_id = ?",
+                (interaction.user.id, interaction.guild.id)
+            )
+            user_achievements = {row['achievement_id'] for row in rows}
             
             # Create achievements embed
             embed = discord.Embed(
@@ -334,7 +345,7 @@ class ProfileCog(commands.Cog):
                 category_text = ""
                 
                 for achievement in achievements_list:
-                    is_achieved = achievement["id"] in profile.get("achievements", {})
+                    is_achieved = achievement["id"] in user_achievements
                     
                     if is_achieved:
                         achieved_count += 1
@@ -355,8 +366,10 @@ class ProfileCog(commands.Cog):
                         category_text += f"❌ {achievement['name']} - {achievement['description']}{progress_text}\n"
                 
                 if category_text:
+                    # Count for category
+                    cat_achieved = len([a for a in achievements_list if a['id'] in user_achievements])
                     embed.add_field(
-                        name=f"{category.title()} ({len([a for a in achievements_list if a['id'] in profile.get('achievements', {})])}/{len(achievements_list)})",
+                        name=f"{category.title()} ({cat_achieved}/{len(achievements_list)})",
                         value=category_text,
                         inline=False
                     )
@@ -390,10 +403,50 @@ class ProfileCog(commands.Cog):
         await interaction.response.defer()
         
         try:
-            # This would require scanning all user files in the server
-            # For now, we'll use the existing economy leaderboard and extend it
+            # We need customized queries for this compared to economy_utils.get_leaderboard
             
-            leaderboard_data = await self.economy_utils.get_leaderboard(interaction.guild.id, limit)
+            if type.value == "achievements":
+                # Special query for achievements count
+                rows = await self.economy_utils.db.fetchall(
+                    """
+                    SELECT user_id, COUNT(*) as count 
+                    FROM user_achievements 
+                    WHERE guild_id = ? 
+                    GROUP BY user_id 
+                    ORDER BY count DESC 
+                    LIMIT ?
+                    """,
+                    (interaction.guild.id, limit)
+                )
+                leaderboard_data = [{"user_id": r["user_id"], "value": r["count"]} for r in rows]
+                title = "🏆 Achievements Leaderboard"
+                icon = "🏆"
+                
+            else:
+                # Use standard users table
+                order_col = "ilm_coins"
+                if type.value == "gdp": order_col = "good_deed_points"
+                elif type.value == "earned": order_col = "total_earned"
+                elif type.value == "games": order_col = "games_played"
+                
+                rows = await self.economy_utils.db.fetchall(
+                    f"SELECT user_id, {order_col} as value FROM users WHERE guild_id = ? ORDER BY {order_col} DESC LIMIT ?",
+                    (interaction.guild.id, limit)
+                )
+                leaderboard_data = [{"user_id": r["user_id"], "value": r["value"]} for r in rows]
+                
+                if type.value == "gdp":
+                    title = "🌟 Good Deed Points Leaderboard"
+                    icon = "🌟"
+                elif type.value == "earned":
+                    title = "💰 Total Earned Leaderboard"
+                    icon = "💰"
+                elif type.value == "games":
+                    title = "🎮 Games Played Leaderboard"
+                    icon = "🎮"
+                else:
+                    title = "🪙 Ilm Coins Leaderboard"
+                    icon = "🪙"
             
             if not leaderboard_data:
                 await interaction.followup.send(
@@ -401,33 +454,6 @@ class ProfileCog(commands.Cog):
                     ephemeral=True
                 )
                 return
-            
-            # Sort based on selected type
-            if type.value == "gdp":
-                leaderboard_data.sort(key=lambda x: x["good_deed_points"], reverse=True)
-                title = "🌟 Good Deed Points Leaderboard"
-                value_key = "good_deed_points"
-                icon = "🌟"
-            elif type.value == "achievements":
-                # This would require loading profiles - for now use a placeholder
-                leaderboard_data.sort(key=lambda x: x["total_earned"], reverse=True)
-                title = "🏆 Achievements Leaderboard"
-                value_key = "total_earned"
-                icon = "🏆"
-            elif type.value == "earned":
-                leaderboard_data.sort(key=lambda x: x["total_earned"], reverse=True)
-                title = "💰 Total Earned Leaderboard"
-                value_key = "total_earned"
-                icon = "💰"
-            elif type.value == "games":
-                leaderboard_data.sort(key=lambda x: x.get("games_played", 0), reverse=True)
-                title = "🎮 Games Played Leaderboard"
-                value_key = "games_played"
-                icon = "🎮"
-            else:  # coins
-                title = "🪙 Ilm Coins Leaderboard"
-                value_key = "ilm_coins"
-                icon = "🪙"
             
             # Create embed
             embed = discord.Embed(
@@ -438,21 +464,17 @@ class ProfileCog(commands.Cog):
             
             # Build leaderboard text
             leaderboard_text = ""
-            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟", "⏸️", "⏸️", "⏸️", "⏸️", "⏸️"]
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
             
-            for i, user_data in enumerate(leaderboard_data[:limit]):
+            for i, entry in enumerate(leaderboard_data):
                 try:
-                    user = await self.bot.fetch_user(user_data["user_id"])
+                    user = await self.bot.fetch_user(entry["user_id"])
                     username = user.display_name
                 except:
-                    username = f"User {user_data['user_id']}"
+                    username = f"User {entry['user_id']}"
                 
                 medal = medals[i] if i < len(medals) else f"{i+1}."
-                value = user_data.get(value_key, 0)
-                
-                if type.value == "achievements":
-                    # Placeholder for achievements count
-                    value = user_data.get("total_earned", 0) // 1000
+                value = entry["value"]
                 
                 leaderboard_text += f"{medal} **{username}** - {value:,} {icon}\n"
             
@@ -461,18 +483,6 @@ class ProfileCog(commands.Cog):
                 value=leaderboard_text or "No data available",
                 inline=False
             )
-            
-            # Find current user's position
-            current_user_pos = None
-            for i, user_data in enumerate(leaderboard_data):
-                if user_data["user_id"] == interaction.user.id:
-                    current_user_pos = i + 1
-                    break
-            
-            if current_user_pos:
-                embed.set_footer(text=f"Your position: #{current_user_pos} - Keep going!")
-            else:
-                embed.set_footer(text="You're not on the leaderboard yet. Start earning!")
             
             await interaction.followup.send(embed=embed)
             

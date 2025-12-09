@@ -288,6 +288,120 @@ class ModerationCog(commands.Cog):
                 ephemeral=True
             )
     
+    @app_commands.command(name="banid", description="Ban a user by their user ID")
+    @app_commands.check(has_ban_permission)
+    @app_commands.check(bot_has_ban_permission)
+    @app_commands.describe(
+        user_id="The user ID to ban",
+        reason="The reason for the ban"
+    )
+    async def banid(
+        self,
+        interaction: discord.Interaction,
+        user_id: str,
+        reason: Optional[str] = None
+    ) -> None:
+        """Ban a user by their user ID. Useful for banning users who have left the server.
+        
+        Args:
+            interaction: The interaction that triggered the command
+            user_id: The ID of the user to ban
+            reason: The reason for the ban
+        """
+        try:
+            # Parse the user ID
+            try:
+                uid = int(user_id.strip())
+            except ValueError:
+                await interaction.response.send_message(
+                    "Invalid user ID. Please provide a valid numeric user ID.",
+                    ephemeral=True
+                )
+                return
+            
+            # Check if trying to ban self
+            if uid == interaction.user.id:
+                await interaction.response.send_message(
+                    "You cannot ban yourself.",
+                    ephemeral=True
+                )
+                return
+            
+            # Check if trying to ban the server owner
+            if uid == interaction.guild.owner_id:
+                await interaction.response.send_message(
+                    "You cannot ban the server owner.",
+                    ephemeral=True
+                )
+                return
+            
+            # Check if trying to ban the bot
+            if uid == self.bot.user.id:
+                await interaction.response.send_message(
+                    "I cannot ban myself.",
+                    ephemeral=True
+                )
+                return
+            
+            # Check if user is in the server and has higher role
+            member = interaction.guild.get_member(uid)
+            if member:
+                if member.bot:
+                    await interaction.response.send_message(
+                        "You cannot ban bots.",
+                        ephemeral=True
+                    )
+                    return
+                
+                if interaction.user != interaction.guild.owner and member.top_role >= interaction.user.top_role:
+                    await interaction.response.send_message(
+                        "You cannot ban someone with equal or higher permissions than you.",
+                        ephemeral=True
+                    )
+                    return
+            
+            # Ban the user by ID
+            user_object = discord.Object(id=uid)
+            if reason:
+                await interaction.guild.ban(user_object, reason=f"{reason} (Banned by {interaction.user})")
+            else:
+                await interaction.guild.ban(user_object, reason=f"Banned by {interaction.user}")
+            
+            # Log the action
+            self.logger.info(
+                f"User {interaction.user} (ID: {interaction.user.id}) banned "
+                f"user ID {uid} with reason: {reason or 'No reason provided'}"
+            )
+            
+            # Send success response
+            if reason:
+                await interaction.response.send_message(
+                    f"Successfully banned user ID `{uid}` for: {reason}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"Successfully banned user ID `{uid}`.",
+                    ephemeral=True
+                )
+                
+        except discord.NotFound:
+            await interaction.response.send_message(
+                "User not found. Please check the user ID.",
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "I don't have permission to ban this user.",
+                ephemeral=True
+            )
+        except Exception as e:
+            self.logger.error(f"Error in banid command: {e}")
+            await interaction.response.send_message(
+                "An unexpected error occurred while banning the user. Please try again later.",
+                ephemeral=True
+            )
+    
     @app_commands.command(name="kick", description="Kick a user from the server")
     @app_commands.check(has_kick_permission)
     @app_commands.check(bot_has_kick_permission)
@@ -513,6 +627,7 @@ class ModerationCog(commands.Cog):
             return None
     
     @ban.error
+    @banid.error
     @kick.error
     @mute.error
     async def moderation_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:

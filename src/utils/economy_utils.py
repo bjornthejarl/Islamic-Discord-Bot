@@ -6,10 +6,10 @@ Handles user data management, transactions, and economy operations.
 import json
 import os
 import asyncio
-import aiofiles
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import logging
+from src.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -17,97 +17,162 @@ logger = logging.getLogger(__name__)
 class EconomyUtils:
     """Utility class for economy system operations."""
     
-    def __init__(self, data_path: str = "src/data/economy"):
-        self.data_path = data_path
+    def __init__(self, db_path: str = "ilm_garden.db"):
+        self.db = Database(db_path)
         self.settings = self._load_settings()
     
     def _load_settings(self) -> Dict[str, Any]:
         """Load economy settings from JSON file."""
-        settings_path = os.path.join(self.data_path, "settings.json")
+        # Settings can still be in JSON as they are config, not user data
+        settings_path = "src/data/economy/settings.json"
         try:
-            with open(settings_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            logger.error(f"Economy settings file not found at {settings_path}")
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
             return {}
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing economy settings: {e}")
+        except Exception as e:
+            logger.error(f"Error loading economy settings: {e}")
             return {}
     
     async def get_user_data(self, user_id: int, guild_id: int) -> Dict[str, Any]:
-        """Get user economy data, creating if it doesn't exist."""
-        user_file = os.path.join(self.data_path, "users", f"{user_id}_{guild_id}.json")
+        """Get user economy data, creating if it doesn't exist. Uses short TTL cache."""
+        cache_key = f"{user_id}_{guild_id}"
+        now = datetime.utcnow()
         
-        try:
-            async with aiofiles.open(user_file, 'r', encoding='utf-8') as f:
-                return json.loads(await f.read())
-        except FileNotFoundError:
-            # Create new user data
-            user_data = {
-                "user_id": user_id,
-                "guild_id": guild_id,
-                "economy": {
-                    "ilm_coins": 100,  # Starting coins
-                    "good_deed_points": 0,
-                    "total_earned": 100,
-                    "total_spent": 0,
-                    "total_donated": 0,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                },
-                "activities": {
-                    "daily_streak": 0,
-                    "last_daily": None,
-                    "last_quiz": None,
-                    "games_played": 0,
-                    "quizzes_completed": 0,
-                    "total_learning_time": 0
-                },
-                "inventory": {},
-                "achievements": {},
-                "equipped_items": {},
-                "settings": {
-                    "notifications": True,
-                    "public_profile": True,
-                    "auto_equip": False
-                }
+        # Check cache
+        if hasattr(self, "_user_cache") and cache_key in self._user_cache:
+            cache_entry = self._user_cache[cache_key]
+            if (now - cache_entry["timestamp"]) < timedelta(seconds=10):
+                return cache_entry["data"]
+        
+        # Fetch from DB
+        row = await self.db.fetchone(
+            "SELECT * FROM users WHERE user_id = ? AND guild_id = ?",
+            (user_id, guild_id)
+        )
+        
+        data = None
+        if row:
+            data = self._row_to_dict(row)
+        else:
+            # Create new user
+            await self.db.execute(
+                """
+                INSERT INTO users (
+                    user_id, guild_id, ilm_coins, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, guild_id, 100, now, now)
+            )
+            await self.db.commit()
+            
+            # Recursively get fresh data (this recursion is safe as it will hit the row block)
+            # But let's just make it explicit to avoid recursion loops
+            data = await self.get_user_data(user_id, guild_id)
+            return data # Already cached by the recursive call if we implemented it, but wait..
+            
+            # Let's fix the recursion logic. calling get_user_data again will hit DB again.
+            # We already inserted. Let's just return the default dict or fetch again.
+            # Fetching again is safer.
+        
+        # Update cache
+        if not hasattr(self, "_user_cache"):
+            self._user_cache = {}
+        
+        self._user_cache[cache_key] = {
+            "data": data,
+            "timestamp": now
+        }
+        
+        return data
+    
+    def _row_to_dict(self, row) -> Dict[str, Any]:
+        """Convert database row to dictionary matching old structure."""
+        return {
+            "user_id": row["user_id"],
+            "guild_id": row["guild_id"],
+            "economy": {
+                "ilm_coins": row["ilm_coins"],
+                "good_deed_points": row["good_deed_points"],
+                "total_earned": row["total_earned"],
+                "total_spent": row["total_spent"],
+                "total_donated": row["total_donated"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"]
+            },
+            "activities": {
+                "daily_streak": row["daily_streak"],
+                "last_daily": row["last_daily"],
+                "games_played": row["games_played"],
+                "quizzes_completed": row["quizzes_completed"],
+                "total_learning_time": row["total_learning_time"]
             }
-            
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(user_file), exist_ok=True)
-            
-            # Save new user data
-            async with aiofiles.open(user_file, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(user_data, indent=2, ensure_ascii=False))
-            
-            logger.info(f"Created new economy profile for user {user_id} in guild {guild_id}")
-            return user_data
+        }
     
     async def save_user_data(self, user_id: int, guild_id: int, user_data: Dict[str, Any]) -> None:
-        """Save user economy data."""
-        user_file = os.path.join(self.data_path, "users", f"{user_id}_{guild_id}.json")
+        """
+        Save user economy data.
+        Note: In the new DB implementation, this is mostly for compatibility.
+        Direct DB updates are preferred.
+        """
+        economy = user_data["economy"]
+        activities = user_data["activities"]
         
-        # Update timestamp
-        user_data["economy"]["updated_at"] = datetime.utcnow().isoformat()
-        
-        try:
-            async with aiofiles.open(user_file, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(user_data, indent=2, ensure_ascii=False))
-        except Exception as e:
-            logger.error(f"Error saving user data for {user_id}: {e}")
+        await self.db.execute(
+            """
+            UPDATE users SET
+                ilm_coins = ?,
+                good_deed_points = ?,
+                total_earned = ?,
+                total_spent = ?,
+                total_donated = ?,
+                daily_streak = ?,
+                last_daily = ?,
+                games_played = ?,
+                quizzes_completed = ?,
+                total_learning_time = ?,
+                updated_at = ?
+            WHERE user_id = ? AND guild_id = ?
+            """,
+            (
+                economy["ilm_coins"],
+                economy["good_deed_points"],
+                economy["total_earned"],
+                economy["total_spent"],
+                economy["total_donated"],
+                activities["daily_streak"],
+                activities["last_daily"],
+                activities["games_played"],
+                activities["quizzes_completed"],
+                activities["total_learning_time"],
+                datetime.utcnow(),
+                user_id,
+                guild_id
+            )
+        )
+        await self.db.commit()
     
     async def add_coins(self, user_id: int, guild_id: int, amount: int, source: str = "unknown") -> bool:
         """Add coins to user's balance and log transaction."""
-        user_data = await self.get_user_data(user_id, guild_id)
-        
         if amount <= 0:
             return False
+            
+        # Ensure user exists
+        await self.get_user_data(user_id, guild_id)
         
-        user_data["economy"]["ilm_coins"] += amount
-        user_data["economy"]["total_earned"] += amount
+        await self.db.execute(
+            """
+            UPDATE users SET 
+                ilm_coins = ilm_coins + ?,
+                total_earned = total_earned + ?,
+                updated_at = ?
+            WHERE user_id = ? AND guild_id = ?
+            """,
+            (amount, amount, datetime.utcnow(), user_id, guild_id)
+        )
         
-        await self.save_user_data(user_id, guild_id, user_data)
         await self.log_transaction(user_id, guild_id, "earn", amount, source)
+        await self.db.commit()
         
         logger.info(f"Added {amount} coins to user {user_id} from {source}")
         return True
@@ -119,18 +184,25 @@ class EconomyUtils:
         if user_data["economy"]["ilm_coins"] < amount:
             return False
         
-        user_data["economy"]["ilm_coins"] -= amount
-        user_data["economy"]["total_spent"] += amount
+        await self.db.execute(
+            """
+            UPDATE users SET 
+                ilm_coins = ilm_coins - ?,
+                total_spent = total_spent + ?,
+                updated_at = ?
+            WHERE user_id = ? AND guild_id = ?
+            """,
+            (amount, amount, datetime.utcnow(), user_id, guild_id)
+        )
         
-        await self.save_user_data(user_id, guild_id, user_data)
         await self.log_transaction(user_id, guild_id, "spend", -amount, source)
+        await self.db.commit()
         
         logger.info(f"Removed {amount} coins from user {user_id} for {source}")
         return True
     
     async def transfer_coins(self, from_user_id: int, to_user_id: int, guild_id: int, amount: int) -> bool:
         """Transfer coins between users."""
-        # Check if transfer is enabled
         if not self.settings.get("economy", {}).get("transfer_enabled", True):
             return False
         
@@ -140,11 +212,13 @@ class EconomyUtils:
         if amount < min_amount or amount > max_amount:
             return False
         
-        # Remove coins from sender
-        if not await self.remove_coins(from_user_id, guild_id, amount, "transfer_out"):
+        # Check balance
+        sender_data = await self.get_user_data(from_user_id, guild_id)
+        if sender_data["economy"]["ilm_coins"] < amount:
             return False
-        
-        # Add coins to receiver
+            
+        # Perform transfer
+        await self.remove_coins(from_user_id, guild_id, amount, "transfer_out")
         await self.add_coins(to_user_id, guild_id, amount, "transfer_in")
         
         logger.info(f"Transferred {amount} coins from {from_user_id} to {to_user_id}")
@@ -161,48 +235,71 @@ class EconomyUtils:
         
         # Check if user can claim daily
         if last_daily:
-            last_daily_date = datetime.fromisoformat(last_daily)
+            if isinstance(last_daily, str):
+                last_daily_date = datetime.fromisoformat(last_daily)
+            else:
+                last_daily_date = last_daily
+                
             if (now - last_daily_date) < timedelta(hours=20):
                 return {"success": False, "message": "You've already claimed your daily reward today!"}
         
         # Calculate streak
+        streak = activities["daily_streak"]
         if last_daily:
-            last_daily_date = datetime.fromisoformat(last_daily)
-            if (now - last_daily_date) < timedelta(hours=48):
-                activities["daily_streak"] += 1
+            if isinstance(last_daily, str):
+                last_daily_date = datetime.fromisoformat(last_daily)
             else:
-                activities["daily_streak"] = 1
+                last_daily_date = last_daily
+                
+            if (now - last_daily_date) < timedelta(hours=48):
+                streak += 1
+            else:
+                streak = 1
         else:
-            activities["daily_streak"] = 1
+            streak = 1
         
         # Calculate reward
         base_reward = economy_settings.get("daily_base_reward", 50)
         streak_bonus = min(
-            activities["daily_streak"] * economy_settings.get("daily_streak_bonus", 10),
+            streak * economy_settings.get("daily_streak_bonus", 10),
             economy_settings.get("max_streak", 7) * economy_settings.get("daily_streak_bonus", 10)
         )
         
         total_reward = base_reward + streak_bonus
         
         # Weekly bonus check
-        if activities["daily_streak"] % 7 == 0:
+        weekly_bonus = 0
+        if streak % 7 == 0:
             weekly_bonus = economy_settings.get("weekly_bonus", 100)
             total_reward += weekly_bonus
         
         # Update user data
-        activities["last_daily"] = now.isoformat()
-        await self.add_coins(user_id, guild_id, total_reward, "daily_reward")
+        await self.db.execute(
+            """
+            UPDATE users SET 
+                daily_streak = ?,
+                last_daily = ?,
+                ilm_coins = ilm_coins + ?,
+                total_earned = total_earned + ?,
+                updated_at = ?
+            WHERE user_id = ? AND guild_id = ?
+            """,
+            (streak, now, total_reward, total_reward, now, user_id, guild_id)
+        )
+        
+        await self.log_transaction(user_id, guild_id, "earn", total_reward, "daily_reward")
+        await self.db.commit()
         
         result = {
             "success": True,
             "reward": total_reward,
             "base_reward": base_reward,
             "streak_bonus": streak_bonus,
-            "streak": activities["daily_streak"],
+            "streak": streak,
             "message": f"Daily reward claimed! You received {total_reward} Ilm Coins."
         }
         
-        if activities["daily_streak"] % 7 == 0:
+        if weekly_bonus > 0:
             result["weekly_bonus"] = weekly_bonus
             result["message"] += f" (Weekly bonus: +{weekly_bonus} IC)"
         
@@ -210,71 +307,51 @@ class EconomyUtils:
     
     async def get_leaderboard(self, guild_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """Get server leaderboard by coin balance."""
-        leaderboard = []
-        users_dir = os.path.join(self.data_path, "users")
+        rows = await self.db.fetchall(
+            """
+            SELECT user_id, ilm_coins, good_deed_points, total_earned 
+            FROM users 
+            WHERE guild_id = ? 
+            ORDER BY ilm_coins DESC 
+            LIMIT ?
+            """,
+            (guild_id, limit)
+        )
         
-        if not os.path.exists(users_dir):
-            return leaderboard
-        
-        for filename in os.listdir(users_dir):
-            if filename.endswith('.json'):
-                try:
-                    file_path = os.path.join(users_dir, filename)
-                    async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-                        user_data = json.loads(await f.read())
-                    
-                    # Only include users from this guild
-                    if user_data.get("guild_id") == guild_id:
-                        leaderboard.append({
-                            "user_id": user_data["user_id"],
-                            "ilm_coins": user_data["economy"]["ilm_coins"],
-                            "good_deed_points": user_data["economy"]["good_deed_points"],
-                            "total_earned": user_data["economy"]["total_earned"]
-                        })
-                except Exception as e:
-                    logger.error(f"Error reading user file {filename}: {e}")
-        
-        # Sort by coin balance (descending)
-        leaderboard.sort(key=lambda x: x["ilm_coins"], reverse=True)
-        return leaderboard[:limit]
+        return [dict(row) for row in rows]
     
     async def log_transaction(self, user_id: int, guild_id: int, 
                             transaction_type: str, amount: int, source: str) -> None:
         """Log a transaction for auditing purposes."""
-        transaction_file = os.path.join(self.data_path, "transactions", f"{user_id}_{guild_id}.json")
+        await self.db.execute(
+            """
+            INSERT INTO transactions (
+                user_id, guild_id, type, amount, source, description
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id, 
+                guild_id, 
+                transaction_type, 
+                amount, 
+                source, 
+                f"{transaction_type.title()} from {source}"
+            )
+        )
+    
+    async def increment_stat(self, user_id: int, guild_id: int, stat_name: str, amount: int = 1) -> None:
+        """Increment a specific user statistic."""
+        valid_stats = [
+            "games_played", "quizzes_completed", "total_learning_time",
+            "daily_streak", "good_deed_points"
+        ]
         
-        transaction = {
-            "transaction_id": f"txn_{int(datetime.utcnow().timestamp())}_{user_id}",
-            "user_id": user_id,
-            "guild_id": guild_id,
-            "type": transaction_type,
-            "amount": amount,
-            "currency": "ilm_coins",
-            "source": source,
-            "description": f"{transaction_type.title()} from {source}",
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(transaction_file), exist_ok=True)
-        
-        try:
-            # Read existing transactions
-            transactions = []
-            if os.path.exists(transaction_file):
-                async with aiofiles.open(transaction_file, 'r', encoding='utf-8') as f:
-                    transactions = json.loads(await f.read())
-            
-            # Add new transaction
-            transactions.append(transaction)
-            
-            # Keep only last 100 transactions
-            if len(transactions) > 100:
-                transactions = transactions[-100:]
-            
-            # Save updated transactions
-            async with aiofiles.open(transaction_file, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(transactions, indent=2, ensure_ascii=False))
-                
-        except Exception as e:
-            logger.error(f"Error logging transaction for user {user_id}: {e}")
+        if stat_name not in valid_stats:
+            logger.warning(f"Attempted to increment invalid stat: {stat_name}")
+            return
+
+        await self.get_user_data(user_id, guild_id)  # Ensure user exists
+
+        query = f"UPDATE users SET {stat_name} = {stat_name} + ?, updated_at = ? WHERE user_id = ? AND guild_id = ?"
+        await self.db.execute(query, (amount, datetime.utcnow(), user_id, guild_id))
+        await self.db.commit()

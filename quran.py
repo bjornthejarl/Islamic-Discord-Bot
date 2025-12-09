@@ -67,14 +67,15 @@ class QuranCog(commands.Cog):
             surahs = []
             
             for file in files:
-                if file.endswith('.mp3'):
-                    # Extract number from filename (handles both "001.mp3" and "1.mp3")
+                if file.endswith(('.mp3', '.ogg')):
+                    # Extract number from filename (handles both "001.mp3", "1.mp3", "001.ogg")
                     number_str = file.split('.')[0]
                     # Remove non-numeric characters
                     number_str = ''.join(filter(str.isdigit, number_str))
                     try:
                         surah_num = int(number_str)
-                        surahs.append(surah_num)
+                        if surah_num not in surahs:
+                            surahs.append(surah_num)
                     except ValueError:
                         continue
                         
@@ -97,16 +98,27 @@ class QuranCog(commands.Cog):
                 return
 
             # Check if audio file exists
-            audio_path = os.path.join("src", "audio", speaker, f"{surah:03d}.mp3")
-            if not os.path.exists(audio_path):
+            # Priority: OGG (Opus) > MP3
+            audio_path = None
+            for ext in [".ogg", ".mp3"]:
+                # Try with leading zeros
+                path = os.path.join("src", "audio", speaker, f"{surah:03d}{ext}")
+                if os.path.exists(path):
+                    audio_path = path
+                    break
+                
                 # Try without leading zeros
-                audio_path = os.path.join("src", "audio", speaker, f"{surah}.mp3")
-                if not os.path.exists(audio_path):
-                    await interaction.followup.send(
-                        f"Audio file for Surah {surah} not found for {speaker}.",
-                        ephemeral=True
-                    )
-                    return
+                path = os.path.join("src", "audio", speaker, f"{surah}{ext}")
+                if os.path.exists(path):
+                    audio_path = path
+                    break
+            
+            if not audio_path:
+                await interaction.followup.send(
+                    f"Audio file for Surah {surah} not found for {speaker}.",
+                    ephemeral=True
+                )
+                return
 
             # Stop current playback if any
             if voice_client.is_playing():
@@ -114,13 +126,13 @@ class QuranCog(commands.Cog):
 
             # Play the audio with proper FFmpeg options
             try:
+                # For local files, we don't need reconnect options
                 voice_client.play(
                     discord.FFmpegPCMAudio(
                         audio_path,
-                        before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
                         options="-vn"
                     ),
-                    after=lambda e: self.logger.error(f"Player error: {e}") if e else None
+                    after=lambda e: self.logger.error(f"Player error: {e}") if e else self.logger.info(f"Finished playing Surah {surah}")
                 )
             except Exception as e:
                 self.logger.error(f"Error starting audio playback: {e}")

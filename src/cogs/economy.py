@@ -473,6 +473,90 @@ class EconomyCog(commands.Cog):
                 ephemeral=True
             )
 
+    @app_commands.command(name="work", description="Work a Halal job to earn Ilm Coins")
+    @app_commands.describe(job="Choose a profession")
+    @app_commands.choices(job=[
+        app_commands.Choice(name="Calligrapher (Artistic)", value="calligrapher"),
+        app_commands.Choice(name="Scholar (Knowledge)", value="scholar"),
+        app_commands.Choice(name="Merchant (Trade)", value="merchant"),
+        app_commands.Choice(name="Charity Worker (Community)", value="charity")
+    ])
+    async def work(self, interaction: discord.Interaction, job: app_commands.Choice[str]):
+        """Perform a job to earn coins."""
+        await interaction.response.defer()
+        
+        try:
+            # Check cooldown (1 hour)
+            # We'll use the user's last_daily field logic or similar, but ideally we'd have a specific last_work field.
+            # Since we are using a dynamic schema in valid SQL now, adding a column is a migration.
+            # For simplicity in this session without migrations, we will store work timestamp in the 'activities' JSON blob if possible,
+            # BUT we moved to strict SQL tables. 
+            # We can use the 'transactions' table to check the last 'work' type transaction for this user.
+            
+            # Check last work transaction
+            last_work = await self.economy_utils.db.fetchone(
+                """
+                SELECT timestamp FROM transactions 
+                WHERE user_id = ? AND guild_id = ? AND type = 'work' 
+                ORDER BY timestamp DESC LIMIT 1
+                """,
+                (interaction.user.id, interaction.guild.id)
+            )
+            
+            now = datetime.utcnow()
+            if last_work:
+                last_time = last_work['timestamp']
+                # Ensure last_time is datetime
+                if isinstance(last_time, str):
+                    last_time = datetime.fromisoformat(last_time)
+                    
+                diff = now - last_time
+                if diff < timedelta(hours=1):
+                    remaining = timedelta(hours=1) - diff
+                    minutes = int(remaining.total_seconds() // 60)
+                    await interaction.followup.send(f"⏳ You are tired! You can work again in **{minutes} minutes**.", ephemeral=True)
+                    return
+
+            # Job details
+            jobs = {
+                "calligrapher": {"min": 30, "max": 60, "text": "You designed a beautiful architectural inscription."},
+                "scholar": {"min": 40, "max": 80, "text": "You taught a class on Fiqh."},
+                "merchant": {"min": 20, "max": 100, "text": "You returned from a successful trade caravan."},
+                "charity": {"min": 10, "max": 40, "text": "You helped organize a community food drive. (Modest pay, high blessings)"}
+            }
+            
+            selected = jobs[job.value]
+            earnings = random.randint(selected["min"], selected["max"])
+            
+            await self.economy_utils.add_coins(interaction.user.id, interaction.guild.id, earnings, "work")
+            
+            # Log specific work type in transaction description (handled by add_coins mostly, but let's be explicit in our specialized log if needed, 
+            # actually add_coins calls log_transaction with generic 'earn'. 
+            # Let's manually verify or just rely on 'work' source being enough.)
+            # The 'source' argument in add_coins is "work".
+            
+            # Ensure we log a specific "work" type transaction for cooldown tracking
+            # add_coins logs as 'earn'. We need a 'work' type record for the SQL query above to work.
+            # We will insert a specialized transaction record or use a different query. 
+            # Better: Let's insert a dummy 'work' record or update the add_coins to support custom types?
+            # Creating a dedicated log entry for cooldown check:
+            await self.economy_utils.db.execute(
+                "INSERT INTO transactions (user_id, guild_id, type, amount, source, description) VALUES (?, ?, 'work', ?, ?, ?)",
+                (interaction.user.id, interaction.guild.id, earnings, "job", f"Worked as {job.name}")
+            )
+            await self.economy_utils.db.commit()
+
+            embed = discord.Embed(
+                title=f"💼 Works as {job.name}",
+                description=f"{selected['text']}\n\n**Earnings:** {earnings} Ilm Coins",
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in work command: {e}")
+            await interaction.followup.send("❌ An error occurred.", ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     """Add the economy cog to the bot."""

@@ -72,6 +72,48 @@ class GameUtils:
         
         # Return default hadith trivia
         return self._get_default_hadith_trivia()
+
+    def get_reciter_challenge(self) -> Dict[str, Any]:
+        """Get a random reciter challenge."""
+        # Using a hardcoded list of famous reciters and sample verses (Fatihah/Baqarah beginnings usually safe/available)
+        # Source: EveryAyah (Public Domain/Open License)
+        reciters = [
+            {
+                "name": "Mishary Rashid Alafasy", 
+                "url": "https://everyayah.com/data/Alafasy_128kbps/001001.mp3",
+                "id": "alafasy"
+            },
+            {
+                "name": "Abdul Basit (Mujawwad)", 
+                "url": "https://everyayah.com/data/Abdul_Basit_Mujawwad_128kbps/001001.mp3",
+                "id": "abdulbasit"
+            },
+            {
+                "name": "Saud Al-Shuraim", 
+                "url": "https://everyayah.com/data/Saood_ash-Shuraym_128kbps/001001.mp3",
+                "id": "shuraim"
+            },
+            {
+                "name": "Maher Al-Muaiqly", 
+                "url": "https://everyayah.com/data/MaherAlMuaiqly128kbps/001001.mp3",
+                "id": "maher"
+            }
+        ]
+        
+        correct = random.choice(reciters)
+        
+        # Create options
+        options = [r["name"] for r in reciters]
+        random.shuffle(options)
+        
+        return {
+            "audio_url": correct["url"],
+            "correct_name": correct["name"],
+            "correct_index": options.index(correct["name"]),
+            "options": options,
+            "difficulty": "medium",
+            "points": 30
+        }
     
     def _get_default_quiz_questions(self) -> List[Dict[str, Any]]:
         """Return default Islamic quiz questions."""

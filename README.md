@@ -43,6 +43,28 @@ A production-ready Discord bot that uses slash commands to verify users with gen
 - **Permissions**: Requires Manage Messages permission
 - **Options**: Number of messages to delete (1-100)
 
+### Spiritual Commands
+
+#### `/prayertimes`
+- **Description**: Get prayer times for a specific city
+- **Options**: City, Country (optional)
+
+#### `/qibla`
+- **Description**: Get Qibla direction for a city
+- **Options**: City
+
+#### `/zakat`
+- **Description**: Calculate Zakat (2.5%) on your assets
+- **Options**: Cash, Gold, Silver, Other savings
+
+#### `/set_daily_channel`
+- **Description**: Set the channel for daily Islamic content (Verse/Hadith of the Day)
+- **Permissions**: Administrator only
+- **Options**: Channel
+
+#### `/trigger_daily`
+- **Description**: Manually trigger the daily content delivery (Admin only)
+
 ### Economy Commands
 
 #### `/balance`
@@ -51,6 +73,10 @@ A production-ready Discord bot that uses slash commands to verify users with gen
 
 #### `/daily`
 - **Description**: Claim your daily Ilm Coins reward with streak bonuses
+
+#### `/work`
+- **Description**: Earn Ilm Coins by performing Halal jobs (Calligrapher, Scholar, etc.)
+- **Cooldown**: 1 hour
 
 #### `/transfer`
 - **Description**: Transfer Ilm Coins to another user
@@ -65,6 +91,10 @@ A production-ready Discord bot that uses slash commands to verify users with gen
 - **Options**: Type (Coins, GDP, Total Earned), scope, limit
 
 ### Game Commands
+
+#### `/guess_reciter`
+- **Description**: Listen to a clip and guess the Quran reciter
+- **Rewards**: Earn Ilm Coins for correct guesses
 
 #### `/quiz`
 - **Description**: Test your Islamic knowledge with multiple-choice questions
@@ -91,15 +121,6 @@ A production-ready Discord bot that uses slash commands to verify users with gen
 #### `/inventory`
 - **Description**: View your purchased items and inventory
 
-### Profile Commands
-
-#### `/profile`
-- **Description**: View your profile and achievements
-- **Options**: User (view another user's profile)
-
-#### `/achievements`
-- **Description**: View all available achievements and your progress
-
 ### Help Commands
 
 #### `/help`
@@ -113,9 +134,13 @@ discord_verify_bot/
 ├── requirements.txt       # Python dependencies
 ├── README.md             # This file
 ├── .env.example          # Environment variables template
+├── Dockerfile            # Docker container configuration
+├── docker-compose.yml    # Docker Compose for easy deployment
+├── .dockerignore         # Docker ignore patterns
 └── src/
     ├── __init__.py
     ├── config.py         # Configuration and environment variables
+    ├── database.py       # PostgreSQL database connection and management
     ├── logging_setup.py  # Structured logging setup
     ├── cogs/
     │   ├── __init__.py
@@ -126,50 +151,42 @@ discord_verify_bot/
     │   ├── games.py      # Educational games Cog
     │   ├── shop.py       # Shop system Cog
     │   ├── profile.py    # Profile and achievements Cog
+    │   ├── spiritual.py  # Spiritual utilities Cog
     │   └── help.py       # Help system Cog
-    ├── utils/
-    │   ├── __init__.py
-    │   ├── checks.py     # Permission checks and validations
-    │   ├── economy_utils.py # Economy system utilities
-    │   └── game_utils.py    # Game system utilities
-    └── data/
-        ├── economy/
-        │   ├── settings.json
-        │   ├── users/     # User economy data
-        │   └── transactions/ # Transaction logs
-        ├── games/         # Game content data
-        ├── profiles/      # User profiles and achievements
-        └── shop/          # Shop items and inventories
+    └── utils/
+        ├── __init__.py
+        ├── checks.py     # Permission checks and validations
+        ├── economy_utils.py # Economy system utilities
+        └── game_utils.py    # Game system utilities
 ```
 
 ## Economy System
 
 ### Currency Types
-- **Ilm Coins (IC)**: Main currency earned through games, daily rewards, and activities
+- **Ilm Coins (IC)**: Main currency earned through games, jobs, daily rewards, and activities
 - **Good Deed Points (GDP)**: Prestige currency earned through donations and charitable acts
 
 ### Features
 - Daily rewards with streak bonuses
+- **Halal Jobs**: Earn coins through roleplay jobs like Scholar or Merchant
 - Coin transfers between users
 - Charitable donations with GDP rewards
 - Server leaderboards
 - Halal-compliant mechanics only
 
+## Spiritual Utilities
+- **Prayer Times**: Accurate timings for any city via Aladhan API
+- **Qibla Finder**: Direction calculation for prayer
+- **Zakat Calculator**: Easy asset-based calculation
+- **Daily Content**: Automatic postings of Verses and Hadiths
+
 ## Game System
 
 ### Available Games
-1. **Islamic Knowledge Quiz**: Multiple-choice questions on various Islamic topics
-2. **Quran Verse Match**: Match Quran verses to correct surah names
-3. **Hadith Trivia**: Interactive Hadith learning games
-4. **Reaction-based gameplay**: Interactive reaction-based interfaces
-5. **Educational rewards**: Earn while learning Islamic knowledge
-
-### Game Features
-- Multiple difficulty levels
-- Category filtering
-- Performance-based rewards
-- Time-limited challenges
-- Educational explanations
+1. **Guess the Reciter**: Audio-based challenge to identify Quran reciters
+2. **Islamic Knowledge Quiz**: Multiple-choice questions on various Islamic topics
+3. **Quran Verse Match**: Match Quran verses to correct surah names
+4. **Hadith Trivia**: Interactive Hadith learning games
 
 ## Shop System
 
@@ -182,33 +199,26 @@ discord_verify_bot/
 
 ### Shop Features
 - Halal-compliant items only
-- Inventory management
+- Inventory management (Database backed)
 - Item effects and benefits
 - Category filtering
-- Purchase confirmation
 
 ## Profile System
 
 ### Features
-- User statistics tracking
-- Achievement system with 10+ achievements
+- User statistics tracking (Games played, Quizzes completed)
+- Achievement system with database tracking
 - Progress tracking
 - Level system based on total earnings
 - Server leaderboards
 - Achievement rewards
-
-### Achievement Categories
-- Learning and knowledge
-- Charity and good deeds
-- Consistency and dedication
-- Economy and wealth
-- Community participation
 
 ## Setup Instructions
 
 ### 1. Prerequisites
 
 - Python 3.10 or higher
+- PostgreSQL Database
 - Discord Bot Token
 
 ### 2. Discord Developer Portal Setup
@@ -219,6 +229,7 @@ discord_verify_bot/
 4. Create a bot and copy the token
 5. Enable these privileged gateway intents:
    - **SERVER MEMBERS INTENT** (required for role management)
+   - **MESSAGE CONTENT INTENT** (recommended)
 
 ### 3. Bot Installation
 
@@ -245,18 +256,13 @@ discord_verify_bot/
    ```
 4. Edit `.env` with your actual values:
    ```
-   DISCORD_TOKEN=your_actual_bot_token_here
+   DISCORD_TOKEN=your_token_here
+   DATABASE_URL=postgresql://user:password@host:port/dbname
    ```
 
 ### 5. Role Setup
 
-**Critical**: In each server where you want to use the bot, ensure the bot's role is ABOVE all roles it needs to manage:
-- Female Role (1438734916929196054)
-- Male Role (1438734872670769323)
-- Female Unverified Role (1438758944322355200)
-- Male Unverified Role (1438734829192740955)
-
-The bot cannot manage roles that are higher than its own highest role.
+**Critical**: In each server where you want to use the bot, ensure the bot's role is ABOVE all roles it needs to manage.
 
 ### 6. Running the Bot
 
@@ -266,43 +272,20 @@ python bot.py
 
 On first run, the bot will:
 - Connect to Discord
+- Connect to the PostgreSQL database (creating tables if they don't exist)
 - Sync slash commands globally across all servers
-- Log the commands that were synced
 - Be ready to receive commands in all servers
 
-## Configuration
-
-### Role IDs
-
-The role IDs are hardcoded in `src/config.py` and can be modified there:
-
-```python
-# Role IDs for verifiers (users who can run the commands)
-FEMALE_VERIFIER_ROLE_ID: int = 1438678339786244096
-MALE_VERIFIER_ROLE_ID: int = 1438678549358706781
-
-# Role IDs to assign to verified users
-FEMALE_ROLE_ID: int = 1438734916929196054
-MALE_ROLE_ID: int = 1438734872670769323
-
-# Role IDs to remove when verified
-FEMALE_REMOVE_ROLE_ID: int = 1438758944322355200
-MALE_REMOVE_ROLE_ID: int = 1438734829192740955
-```
-
-### Economy Settings
-
-Economy settings are configured in `src/data/economy/settings.json`:
-- Daily base reward and streak bonuses
-- Transfer limits
-- Game reward multipliers
-- Weekly bonus amounts
-
-### Environment Variables
-
-- `DISCORD_TOKEN`: Your bot token from Discord Developer Portal
+## Database
+The bot now uses **PostgreSQL** for all data storage (Users, Economy, Inventory, Achievements).
+Ensure you have a running PostgreSQL instance and provide the connection string in `DATABASE_URL`.
 
 ## Troubleshooting
+
+### Database Connection Fails
+- Check `DATABASE_URL` in `.env`
+- Ensure the database server is running and accessible
+- Check for firewall or network issues
 
 ### Commands Not Appearing
 - Ensure the bot has the `applications.commands` scope when invited
@@ -318,11 +301,6 @@ Economy settings are configured in `src/data/economy/settings.json`:
 - The bot's highest role must be above the target roles in each server
 - Target user must not be a bot
 - Target user must not already have the role
-
-### Data Issues
-- User data is stored in JSON files in the `src/data/` directory
-- Ensure the bot has write permissions to these directories
-- Data is organized by user ID and guild ID for multi-server support
 
 ## Development
 

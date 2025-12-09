@@ -238,41 +238,34 @@ class ShopCog(commands.Cog):
                 )
                 return
             
-            # Add item to user's inventory
-            inventory_path = os.path.join("src", "data", "shop", "inventories", f"{interaction.user.id}_{interaction.guild.id}.json")
-            os.makedirs(os.path.dirname(inventory_path), exist_ok=True)
+            # Add item to user's inventory in DB
+            await self.economy_utils.db.execute(
+                """
+                INSERT INTO inventory (user_id, guild_id, item_id, quantity)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT (user_id, guild_id, item_id) 
+                DO UPDATE SET quantity = inventory.quantity + 1
+                """,
+                (interaction.user.id, interaction.guild.id, item_id)
+            )
             
-            inventory = {}
-            if os.path.exists(inventory_path):
-                with open(inventory_path, 'r', encoding='utf-8') as f:
-                    inventory = json.load(f)
-            
-            # Add item to inventory
-            if item_id not in inventory:
-                inventory[item_id] = {
-                    "name": item["name"],
-                    "quantity": 1,
-                    "type": item["type"],
-                    "purchased_at": interaction.created_at.isoformat()
-                }
-            else:
-                inventory[item_id]["quantity"] += 1
-            
-            with open(inventory_path, 'w', encoding='utf-8') as f:
-                json.dump(inventory, f, indent=2, ensure_ascii=False)
+            await self.economy_utils.db.commit()
             
             # Apply item effects
+            effects_applied = []
             if "effects" in item:
-                effects_applied = []
-                for effect, value in item["effects"].items():
-                    if effect == "good_deed_points":
-                        user_data["economy"]["good_deed_points"] += value
-                        effects_applied.append(f"+{value} Good Deed Points")
-                    elif effect == "prestige":
-                        user_data["activities"]["prestige"] = user_data["activities"].get("prestige", 0) + value
-                        effects_applied.append(f"+{value} Prestige")
+                if "good_deed_points" in item["effects"]:
+                    gdp_amount = item["effects"]["good_deed_points"]
+                    user_data["economy"]["good_deed_points"] += gdp_amount
+                    
+                    # Update user GDP directly in DB
+                    await self.economy_utils.db.execute(
+                        "UPDATE users SET good_deed_points = good_deed_points + ? WHERE user_id = ? AND guild_id = ?",
+                        (gdp_amount, interaction.user.id, interaction.guild.id)
+                    )
+                    effects_applied.append(f"+{gdp_amount} Good Deed Points")
                 
-                await self.economy_utils.save_user_data(interaction.user.id, interaction.guild.id, user_data)
+                # Check for other effects handling if needed
             
             # Create success embed
             embed = discord.Embed(
@@ -317,19 +310,13 @@ class ShopCog(commands.Cog):
         await interaction.response.defer()
         
         try:
-            inventory_path = os.path.join("src", "data", "shop", "inventories", f"{interaction.user.id}_{interaction.guild.id}.json")
+            # Fetch inventory from DB
+            rows = await self.economy_utils.db.fetchall(
+                "SELECT item_id, quantity FROM inventory WHERE user_id = ? AND guild_id = ?",
+                (interaction.user.id, interaction.guild.id)
+            )
             
-            if not os.path.exists(inventory_path):
-                await interaction.followup.send(
-                    "📦 Your inventory is empty. Visit the shop with `/shop` to purchase items!",
-                    ephemeral=True
-                )
-                return
-            
-            with open(inventory_path, 'r', encoding='utf-8') as f:
-                inventory = json.load(f)
-            
-            if not inventory:
+            if not rows:
                 await interaction.followup.send(
                     "📦 Your inventory is empty. Visit the shop with `/shop` to purchase items!",
                     ephemeral=True
@@ -342,17 +329,26 @@ class ShopCog(commands.Cog):
                 color=discord.Color.blue()
             )
             
-            for item_id, item_data in inventory.items():
-                item_text = f"**Type:** {item_data['type'].title()}\n"
-                item_text += f"**Quantity:** {item_data['quantity']}\n"
+            item_count = 0
+            for row in rows:
+                item_id = row['item_id']
+                quantity = row['quantity']
                 
-                embed.add_field(
-                    name=item_data["name"],
-                    value=item_text,
-                    inline=True
-                )
+                # Find item details
+                item_details = next((i for i in self.shop_items["items"] if i["id"] == item_id), None)
+                
+                if item_details:
+                    item_text = f"**Type:** {item_details['type'].title()}\n"
+                    item_text += f"**Quantity:** {quantity}\n"
+                    
+                    embed.add_field(
+                        name=item_details["name"],
+                        value=item_text,
+                        inline=True
+                    )
+                    item_count += 1
             
-            embed.set_footer(text=f"Total items: {len(inventory)}")
+            embed.set_footer(text=f"Total items: {item_count}")
             
             await interaction.followup.send(embed=embed)
             

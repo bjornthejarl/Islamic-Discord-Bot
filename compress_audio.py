@@ -1,164 +1,105 @@
 """
-Audio Compression Script
-Compresses MP3 files to reduce size while maintaining reasonable quality.
+Audio Re-Compression Script (Ultra Mode)
+Compresses existing OGG files to ultra-low bitrate Opus (8k).
 """
 
 import os
 import subprocess
 import logging
+import shutil
 from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("AudioCompressor")
 
-def compress_audio_file(input_path, output_path, bitrate='64k'):
+def compress_audio_file(input_path, output_path):
     """
-    Compress an audio file using FFmpeg.
-    
-    Args:
-        input_path: Path to input audio file
-        output_path: Path for compressed output file
-        bitrate: Target bitrate for compression (default: 64k)
+    Compress audio to Ultra-Low Opus format using FFmpeg.
+    Target: 8k bitrate, 12000Hz, Mono.
     """
     try:
-        # FFmpeg command to compress MP3 with optimized settings
+        # Check if output is the same as input (in-place replacement)
+        # We need a temp file for in-place
+        temp_output = str(Path(output_path).with_suffix('.temp.ogg'))
+        
+        # FFmpeg command
+        # -c:a libopus : Use Opus codec
+        # -b:a 6k : 6kbps bitrate (Extreme compression)
+        # -vbr on : Variable bitrate
+        # -ac 1 : Mono
+        # -ar 8000 : Narrowband (Walkie-talkie quality)
+        # -frame_duration 60 : 60ms frames for less overhead
+        
         cmd = [
             'ffmpeg',
             '-i', input_path,
-            '-codec:a', 'libmp3lame',
-            '-b:a', bitrate,
-            '-ac', '1',  # Convert to mono to reduce size
-            '-ar', '22050',  # Reduce sample rate
-            '-y',  # Overwrite output file if it exists
-            output_path
+            '-c:a', 'libopus',
+            '-b:a', '6k',
+            '-vbr', 'on',
+            '-compression_level', '10',
+            '-frame_duration', '60',
+            '-application', 'voip',
+            '-ac', '1',
+            '-ar', '8000',
+            '-map_metadata', '-1',
+            '-y',
+            temp_output
         ]
         
+        # Suppress FFmpeg output unless error
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
-            # Get file sizes for comparison
             input_size = os.path.getsize(input_path)
-            output_size = os.path.getsize(output_path)
-            compression_ratio = (1 - (output_size / input_size)) * 100
+            output_size = os.path.getsize(temp_output)
             
-            logger.info(f"Compressed {os.path.basename(input_path)}: "
-                       f"{input_size / 1024 / 1024:.2f}MB -> {output_size / 1024 / 1024:.2f}MB "
-                       f"({compression_ratio:.1f}% reduction)")
-            
-            return True
+            # If temp is smaller, replace original
+            if output_size < input_size:
+                shutil.move(temp_output, output_path)
+                ratio = (1 - (output_size / input_size)) * 100
+                logger.info(f"✅ {os.path.basename(input_path)}: {input_size/1024/1024:.2f}MB -> {output_size/1024/1024:.2f}MB ({ratio:.1f}%)")
+                return True, (input_size - output_size)
+            else:
+                logger.info(f"⚠️ {os.path.basename(input_path)}: New file not smaller, keeping original.")
+                os.remove(temp_output)
+                return True, 0
         else:
-            logger.error(f"FFmpeg error for {input_path}: {result.stderr}")
-            return False
+            logger.error(f"❌ FFmpeg error for {input_path}: {result.stderr}")
+            if os.path.exists(temp_output):
+                os.remove(temp_output)
+            return False, 0
             
     except Exception as e:
-        logger.error(f"Error compressing {input_path}: {e}")
-        return False
+        logger.error(f"❌ Exception compressing {input_path}: {e}")
+        return False, 0
 
-def compress_all_audio_files(audio_dir='src/audio', temp_dir='temp_compressed'):
+def process_directory(base_dir='src/audio'):
     """
-    Compress all audio files in the audio directory.
-    
-    Args:
-        audio_dir: Directory containing audio files
-        temp_dir: Temporary directory for compressed files
+    Process all OGG files in directory, re-compressing them.
     """
-    try:
-        # Create temporary directory for compressed files
-        temp_path = Path(temp_dir)
-        temp_path.mkdir(exist_ok=True)
-        
-        total_files = 0
-        successful_compressions = 0
-        
-        # Walk through all speaker directories
-        for speaker_dir in Path(audio_dir).iterdir():
-            if speaker_dir.is_dir():
-                speaker_name = speaker_dir.name
-                logger.info(f"Processing speaker: {speaker_name}")
-                
-                # Create speaker subdirectory in temp
-                speaker_temp_dir = temp_path / speaker_name
-                speaker_temp_dir.mkdir(exist_ok=True)
-                
-                # Process all MP3 files in speaker directory
-                for audio_file in speaker_dir.glob('*.mp3'):
-                    total_files += 1
-                    
-                    # Define output path
-                    output_file = speaker_temp_dir / audio_file.name
-                    
-                    # Compress the file
-                    if compress_audio_file(str(audio_file), str(output_file)):
-                        successful_compressions += 1
-        
-        logger.info(f"Compression completed: {successful_compressions}/{total_files} files compressed successfully")
-        
-        # Ask user if they want to replace original files
-        if successful_compressions > 0:
-            logger.info(f"Compressed files are available in: {temp_dir}")
-            logger.info("You can review the compressed files and replace the originals if satisfied.")
-            
-        return successful_compressions
-        
-    except Exception as e:
-        logger.error(f"Error in compression process: {e}")
-        return 0
+    base_path = Path(base_dir)
+    if not base_path.exists():
+        logger.error(f"Directory {base_dir} not found.")
+        return
 
-def replace_original_files(temp_dir='temp_compressed', audio_dir='src/audio'):
-    """
-    Replace original audio files with compressed versions.
+    logger.info(f"Scanning {base_dir} for re-compression...")
     
-    Args:
-        temp_dir: Directory containing compressed files
-        audio_dir: Directory containing original audio files
-    """
-    try:
-        replaced_count = 0
-        
-        # Walk through all speaker directories in temp
-        for speaker_dir in Path(temp_dir).iterdir():
-            if speaker_dir.is_dir():
-                speaker_name = speaker_dir.name
+    total_space_saved = 0
+    file_count = 0
+    
+    # Iterate through all subdirectories
+    for file_path in base_path.rglob('*.ogg'):
+        # Output is same file
+        success, saved = compress_audio_file(str(file_path), str(file_path))
+        if success:
+            file_count += 1
+            total_space_saved += saved
                 
-                # Process all compressed MP3 files
-                for compressed_file in speaker_dir.glob('*.mp3'):
-                    # Define original file path
-                    original_file = Path(audio_dir) / speaker_name / compressed_file.name
-                    
-                    if original_file.exists():
-                        # Backup original file (optional)
-                        # backup_file = original_file.with_suffix('.mp3.backup')
-                        # original_file.rename(backup_file)
-                        
-                        # Replace original with compressed
-                        compressed_file.replace(original_file)
-                        replaced_count += 1
-                        logger.info(f"Replaced: {original_file}")
-        
-        logger.info(f"Replaced {replaced_count} original files with compressed versions")
-        return replaced_count
-        
-    except Exception as e:
-        logger.error(f"Error replacing files: {e}")
-        return 0
+    logger.info("-" * 40)
+    logger.info(f"🎉 Re-Compression Complete!")
+    logger.info(f"Files processed: {file_count}")
+    logger.info(f"Total space saved: {total_space_saved / 1024 / 1024:.2f} MB")
 
 if __name__ == "__main__":
-    logger.info("Starting audio compression...")
-    
-    # First, compress all files to temporary directory
-    success_count = compress_all_audio_files()
-    
-    if success_count > 0:
-        logger.info("Compression completed successfully!")
-        logger.info("Compressed files are in 'temp_compressed' directory.")
-        
-        # Ask user if they want to replace originals
-        response = input("Do you want to replace original files with compressed versions? (y/n): ")
-        if response.lower() in ['y', 'yes']:
-            replaced = replace_original_files()
-            logger.info(f"Replaced {replaced} files. You can now delete the 'temp_compressed' directory.")
-        else:
-            logger.info("Original files preserved. Compressed files remain in 'temp_compressed' directory.")
-    else:
-        logger.error("No files were compressed successfully.")
+    process_directory()

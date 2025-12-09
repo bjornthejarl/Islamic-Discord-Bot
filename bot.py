@@ -72,6 +72,10 @@ class VerifyBot(commands.Bot):
         await self.load_extension("quran")
         logging.info("Loaded quran cog")
         
+        # Load the spiritual cog
+        await self.load_extension("src.cogs.spiritual")
+        logging.info("Loaded spiritual cog")
+        
     async def on_ready(self) -> None:
         """Called when the bot has successfully connected to Discord."""
         logging.info(f"Logged in as {self.user} (ID: {self.user.id})")

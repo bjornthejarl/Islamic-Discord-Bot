@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  islamic-discord-bot:
+    build: .
+    container_name: islamic-discord-bot
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/src/data
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
