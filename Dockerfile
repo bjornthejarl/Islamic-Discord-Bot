@@ -14,6 +14,7 @@ RUN apt-get update \
         gcc \
         python3-dev \
         ffmpeg \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -27,6 +28,13 @@ COPY . .
 
 # Create necessary directories for the bot
 RUN mkdir -p src/data/economy/users src/data/economy/transactions src/data/profiles src/data/shop
+
+# Extract audio files from zip if it exists
+RUN if [ -f src/audio.zip ]; then \
+        mkdir -p src/audio && \
+        unzip -o src/audio.zip -d src/ && \
+        rm src/audio.zip; \
+    fi
 
 # Set the entry point
 CMD ["python", "bot.py"]
