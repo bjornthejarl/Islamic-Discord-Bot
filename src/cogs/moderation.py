@@ -15,10 +15,8 @@ from src.config import Config
 from src.utils.checks import is_guild_only, bot_has_manage_roles_permission
 
 
-# Role IDs for permission checks
-BAN_ROLE_ID = 1438678850073661572
-KICK_ROLES_IDS = [1438678850073661572, 1441277347360669718]
-PURGE_ROLES_IDS = [1438678850073661572, 1441277347360669718]
+# Authorized role ID that can use moderation commands
+AUTHORIZED_ROLE_ID = 1438678850073661572
 
 
 async def has_ban_permission(interaction: discord.Interaction) -> bool:
@@ -35,25 +33,24 @@ async def has_ban_permission(interaction: discord.Interaction) -> bool:
     """
     await is_guild_only(interaction)
     
+    member = interaction.user
+    
     # Server owner always has permission
-    if interaction.user == interaction.guild.owner:
+    if member == interaction.guild.owner:
         return True
     
-    # Check for specific role
-    member = interaction.user
-    role = interaction.guild.get_role(BAN_ROLE_ID)
+    # Check for Administrator permission
+    if member.guild_permissions.administrator:
+        return True
     
-    if not role:
-        raise app_commands.CheckFailure(
-            "The required moderator role was not found in this server."
-        )
+    # Check for specific authorized role
+    role = interaction.guild.get_role(AUTHORIZED_ROLE_ID)
+    if role and role in member.roles:
+        return True
     
-    if role not in member.roles:
-        raise app_commands.CheckFailure(
-            "You don't have permission to use this command."
-        )
-    
-    return True
+    raise app_commands.CheckFailure(
+        "You don't have permission to use this command. Only Administrators can use moderation commands."
+    )
 
 
 async def has_kick_permission(interaction: discord.Interaction) -> bool:
@@ -70,26 +67,24 @@ async def has_kick_permission(interaction: discord.Interaction) -> bool:
     """
     await is_guild_only(interaction)
     
+    member = interaction.user
+    
     # Server owner always has permission
-    if interaction.user == interaction.guild.owner:
+    if member == interaction.guild.owner:
         return True
     
-    # Check for specific roles
-    member = interaction.user
-    has_permission = False
+    # Check for Administrator permission
+    if member.guild_permissions.administrator:
+        return True
     
-    for role_id in KICK_ROLES_IDS:
-        role = interaction.guild.get_role(role_id)
-        if role and role in member.roles:
-            has_permission = True
-            break
+    # Check for specific authorized role
+    role = interaction.guild.get_role(AUTHORIZED_ROLE_ID)
+    if role and role in member.roles:
+        return True
     
-    if not has_permission:
-        raise app_commands.CheckFailure(
-            "You don't have permission to use this command."
-        )
-    
-    return True
+    raise app_commands.CheckFailure(
+        "You don't have permission to use this command. Only Administrators can use moderation commands."
+    )
 
 
 async def has_purge_permission(interaction: discord.Interaction) -> bool:
@@ -106,26 +101,24 @@ async def has_purge_permission(interaction: discord.Interaction) -> bool:
     """
     await is_guild_only(interaction)
     
+    member = interaction.user
+    
     # Server owner always has permission
-    if interaction.user == interaction.guild.owner:
+    if member == interaction.guild.owner:
         return True
     
-    # Check for specific roles
-    member = interaction.user
-    has_permission = False
+    # Check for Administrator permission
+    if member.guild_permissions.administrator:
+        return True
     
-    for role_id in PURGE_ROLES_IDS:
-        role = interaction.guild.get_role(role_id)
-        if role and role in member.roles:
-            has_permission = True
-            break
+    # Check for specific authorized role
+    role = interaction.guild.get_role(AUTHORIZED_ROLE_ID)
+    if role and role in member.roles:
+        return True
     
-    if not has_permission:
-        raise app_commands.CheckFailure(
-            "You don't have permission to use this command."
-        )
-    
-    return True
+    raise app_commands.CheckFailure(
+        "You don't have permission to use this command. Only Administrators can use moderation commands."
+    )
 
 
 async def bot_has_ban_permission(interaction: discord.Interaction) -> bool:
